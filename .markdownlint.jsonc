@@ -1,0 +1,6 @@
+{
+  // Prose in this repository wraps past 80 columns on purpose, in AGENTS.md and in the local
+  // guides under docs/. Rewrapping every paragraph would bury real edits in noise, so only this
+  // rule is off; every other markdownlint rule still applies.
+  "MD013": false
+}

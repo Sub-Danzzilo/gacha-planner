@@ -6,3 +6,5 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 data/profiles/*.json
+# Local notes and guides, not part of the application
+docs/

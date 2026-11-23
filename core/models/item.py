@@ -1,10 +1,22 @@
-# FASE 1 (gambar: FASE 5)
-# Item yang bisa didapat dari banner.
-#
-# Yang dikerjakan:
-# - Dataclass Item (frozen, slots): name: str, tier_name: str, is_featured: bool = False,
-#   image_path: Path | None = None.
-#   Validasi: name tidak kosong setelah strip.
-#   image_path disimpan relatif terhadap folder profil, bukan path absolut, supaya profil bisa dipindah.
-#
-# Jangan: memuat gambar atau mengimpor Pillow di sini. Pemuatan gambar urusan ui/ (fase 5).
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True, slots=True)
+class Item:
+    """One item obtainable from a banner.
+
+    ``image_path`` is stored relative to the profile folder so profiles stay movable. Images are
+    loaded only by the UI.
+    """
+
+    name: str
+    tier_name: str
+    is_featured: bool = False
+    image_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("Item name cannot be empty")

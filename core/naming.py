@@ -1,10 +1,67 @@
-# FASE 2
-# Pembuat nama item acak, untuk user yang tidak mau memikirkan nama.
-#
-# Yang dikerjakan:
-# - Class RandomNameGenerator: menerima rng: random.Random (di-inject). Method generate(taken: set[str]) -> str
-#   merangkai dua bagian dari tuple konstanta modul (misal kata sifat + benda) dan menjamin hasil tidak ada
-#   di `taken`. Jika kombinasi habis, lempar error jelas, jangan loop selamanya.
-# - Daftar kata cukup puluhan entri, tertulis langsung di file ini sebagai tuple[str, ...].
-#
-# Jangan: membaca file eksternal atau memakai library generator nama.
+from __future__ import annotations
+
+import random
+
+_ADJECTIVES: tuple[str, ...] = (
+    "Blue",
+    "Golden",
+    "Silver",
+    "Silent",
+    "Dark",
+    "Bright",
+    "Soft",
+    "Sharp",
+    "Warm",
+    "Cold",
+    "Sweet",
+    "Noble",
+    "Graceful",
+    "Swift",
+    "Calm",
+    "Grand",
+    "Little",
+    "High",
+    "Low",
+    "Clear",
+)
+
+_NOUNS: tuple[str, ...] = (
+    "Moon",
+    "Star",
+    "Sun",
+    "Wind",
+    "Water",
+    "Fire",
+    "Earth",
+    "Rain",
+    "Snow",
+    "Cloud",
+    "Dusk",
+    "Dawn",
+    "Mist",
+    "Wave",
+    "Island",
+    "Valley",
+    "Peak",
+    "Forest",
+    "Flower",
+    "Shore",
+)
+
+
+class RandomNameGenerator:
+    """Placeholder item names for players who do not want to type their own."""
+
+    def __init__(self, rng: random.Random) -> None:
+        self._rng = rng
+
+    def generate(self, taken: set[str]) -> str:
+        available = [
+            f"{adjective} {noun}"
+            for adjective in _ADJECTIVES
+            for noun in _NOUNS
+            if f"{adjective} {noun}" not in taken
+        ]
+        if not available:
+            raise ValueError("All name combinations are taken; add a name manually")
+        return self._rng.choice(available)

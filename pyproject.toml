@@ -21,7 +21,12 @@ include = ["core*", "storage*", "ui*"]
 python_version = "3.11"
 strict = true
 warn_unreachable = true
-files = ["core", "storage", "ui", "tests", "main.py"]
+files = ["core", "storage", "ui", "services", "tests", "main.py"]
+
+# matplotlib mengirim anotasi sebagian tanpa py.typed penuh, jadi diperlakukan sebagai Any.
+[[tool.mypy.overrides]]
+module = ["matplotlib", "matplotlib.*"]
+follow_imports = "skip"
 
 [tool.ruff]
 line-length = 100

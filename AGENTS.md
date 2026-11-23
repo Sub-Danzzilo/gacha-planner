@@ -18,55 +18,80 @@ Everything is user-defined (items, rates, pity, currencies, prices). There are n
 
 ## Current state
 
-Every Python file in this repository currently contains only comment instructions describing what the file must contain. Your job is to replace those comments with a real implementation. Work in the phase order below. Do not implement a later phase's files while an earlier phase is incomplete.
+Phases 1-5 are implemented. `pytest`, `mypy .`, `ruff check .` and `ruff format --check .` pass.
 
-When a file is implemented, delete the instruction comments that are now redundant. Keep only comments that explain why something is done, not what it does.
+Implemented:
+
+- `core/models/`: `Currency`/`CurrencyKind`/`Money`, `Item`, `PityConfig`/`FeaturedGuarantee`/`PityState`/`PullRule`, `RateTier`/`Banner`, `TopUpPackage`, `GameProfile`, `PullRecord`/`PullLog`
+- `core/calculators/`: the `PullCalculator` contract, `SimpleCalculator` (closed form), `PityCalculator` (forward DP over `(pity, guaranteed)`), `MultiTargetEstimator` (simulation plus a Wilson interval)
+- `core/`: `GachaSimulator`, `RateEstimator`, `BudgetPlanner`, `TopUpOptimizer`, `ManualRateProvider`/`CurrencyConverter`, `RandomNameGenerator`, domain errors
+- `services/planner_service.py`: the single entry point from the UI into the domain
+- `storage/`: JSON profile serializer and an atomic profile repository
+- `ui/`: Tkinter app shell, text parsing, background worker, theme and chart helpers, four views
+- `tests/`: unit tests for `core/`, `storage/` and `services/`
+
+Not implemented yet; do not describe these as existing features:
+
+- pull-log persistence and a pull-log screen (`core/models/pull_log.py` and `core/estimator.py` exist, but `GameProfile` has no field for logs)
+- a Monte Carlo panel in the UI (`ui/tasks.py` and `build_histogram_figure` exist, but no view uses them)
+- item images in the banner form (`ui/widgets/item_card.py` exists but is not wired)
+
+## Language
+
+Everything in this repository is English: UI labels, dialog text, messages, identifiers, comments, docstrings, test names and test data. Do not add Indonesian text anywhere.
+
+Numbers use English formatting everywhere: `.` for decimals and `,` for thousands, for example `16,000.50`. Input parsing rules live only in `ui/parsing.py`.
 
 ## Tech stack
 
 - Python 3.11+
 - Standard library for everything in `core/` and `storage/`
 - Tkinter / ttk for the UI
-- Pillow for item images (phase 5)
-- matplotlib for charts (phase 3)
+- matplotlib for charts, Pillow for item images
 - pytest for tests, mypy for static typing, ruff for linting and formatting
 
-Do not add a dependency without a clear reason. If you think one is needed, stop and say why in your final message instead of adding it silently.
+Runtime dependencies are declared in `requirements.txt`; matplotlib and Pillow are also optional extras (`[charts]`, `[images]`) and part of `[dev]`. Do not add a dependency without a clear reason; say why instead of adding it silently.
 
 ## Architecture and layering
 
-```
+```text
 core/      Pure domain logic. Stdlib only. No I/O, no Tkinter, no JSON.
+services/  Orchestration for the UI. Imports core. Never imported by core.
 storage/   Persistence. Imports core. Never imported by core.
-ui/        Tkinter. Imports core and storage. Never imported by them.
-tests/     Mirrors core/ and storage/. UI is not unit tested.
+ui/        Tkinter. Imports core, services and storage. Never imported by them.
+tests/     Mirrors core/, storage/ and services/. UI is not unit tested.
 ```
 
 Rules:
 
-1. `core/` must not import from `storage/` or `ui/`. Enforce this by review; if you are unsure, check the import list of each file.
-2. Views in `ui/views/` contain no business logic. They render state and forward user events to a presenter. Presenters in `ui/presenters.py` call `core/` and return plain data for the view.
-3. Long computations (Monte Carlo, large DP) must not run on the Tkinter main thread. Use the worker helper in `ui/workers.py`.
-4. No global mutable state and no singletons. Dependencies are passed in through constructors.
-5. Randomness is always injected as a `random.Random` instance so results are reproducible in tests.
+1. `core/` must not import from `storage/`, `services/` or `ui/`. Check the import list of each file when in doubt.
+2. `services/` may import `core/` only. The UI never computes probabilities or currency math itself.
+3. Views in `ui/views/` contain no business logic. They collect text, convert it with `ui/parsing.py`, call a service or an `App` callback, and render plain data. There are no presenter classes: `ui/parsing.py` is the only place that turns user text into typed values.
+4. Long computations must not run on the Tkinter main thread. Use `BackgroundTask` from `ui/tasks.py`; the module is currently unused because no screen runs a long task yet.
+5. No global mutable state and no singletons. Dependencies are passed in through constructors.
+6. Randomness inside `core/` is always injected as a `random.Random` instance so results are reproducible in tests. The UI may create its own instance for cosmetic purposes (random item names).
+7. Exceptions: `ValueError` (or a subclass such as `InputError`, `CurrencyMismatchError`) for invalid arguments or data, raised from validation in dataclasses and calculators; `core/errors.py` for cross-module domain failures (`MissingExchangeRateError`, `StorageError`). Never raise bare `Exception`.
+8. `Money` accepts `Decimal` only (`int` and `float` raise `TypeError`). Ordering comparisons between different currencies raise `CurrencyMismatchError`; equality stays structural.
 
 ## Domain vocabulary
 
+Use the names the code uses:
+
 - **Pull**: one attempt on a banner.
-- **Banner**: a pool of items with tier rates, a rate curve, a pity rule and an optional guarantee rule.
-- **Tier**: a rarity class (for example 5-star, 4-star, common). Each tier has a rate.
-- **Pity counter**: number of consecutive pulls since the last success for a tier.
-- **Hard pity**: the pull number at which success is guaranteed (probability 1).
-- **Soft pity**: the pull number from which the per-pull rate starts rising.
-- **Rate curve**: function from pity counter to per-pull success probability.
-- **Guarantee (50/50)**: when a top-tier success may be a non-featured item, and a loss may guarantee the featured item next time.
+- **Banner**: a pool of items with tiers, each tier carrying a `PullRule`, plus a pull cost and an optional deadline.
+- **RateTier**: one rarity class on a banner (for example "5-star").
+- **PullRule**: base rate plus optional `PityConfig` and `FeaturedGuarantee`. `PullRule.effective_rate(pity_count)` is the chance for a single pull.
+- **Pity counter**: consecutive failed pulls since the last hit, so the next pull is pull number `pity_count + 1`. Hard pity `H` is certain on pull `H`; soft pity raises the rate by `soft_pity_step` starting at pull `soft_pity_start`.
+- **PityState**: the player's starting `pity_count` and `guaranteed_featured`.
+- **FeaturedGuarantee** (the 50/50): `win_chance` for the featured item and `guaranteed_after_loss`.
 - **Target**: the item (or set of items and copies) the player wants.
-- **Currency**: either a game currency (diamonds, tickets, coins) or a real currency (USD, IDR). Real currency has an ISO-like code.
-- **Top-up package**: a purchasable bundle of game currency priced in real money, possibly with bonus and first-time-only flags.
+- **Currency**: game currency (diamonds, tickets, coins) or real currency with an ISO-like code.
+- **Top-up package**: a purchasable bundle of game currency priced in real money, with optional regular and first-purchase bonuses.
+- **Calculator**: `SimpleCalculator` for a flat rate, `PityCalculator` for pity and guarantee, `MultiTargetEstimator` for several targets.
 
 ## Numeric conventions
 
-- Money and currency amounts: `decimal.Decimal`. Never `float`.
+- Money and currency amounts: `decimal.Decimal`. Never `float`, never `int`.
 - Probabilities: `float` in `[0.0, 1.0]`, validated at construction.
 - User-facing percentages are converted at the UI boundary; `core/` only sees probabilities.
 - Pull counts are `int`.
@@ -75,9 +100,8 @@ Rules:
 
 - Full type hints on every function, method and attribute. The project must pass `mypy --strict`.
 - Prefer `@dataclass(frozen=True, slots=True)` for value objects. Use plain classes for objects with behavior and state.
-- Use `Protocol` or `abc.ABC` only where there is more than one implementation or a documented extension point (rate curves, exchange rate providers).
+- Use `Protocol` or `abc.ABC` only where there is more than one implementation or a documented extension point (`PullCalculator`, `ExchangeRateProvider`).
 - Public classes and functions get a short docstring only if the name and signature do not already explain them.
-- Raise specific exceptions from `core/errors.py`. Do not raise bare `Exception` or `ValueError` for domain failures.
 - Keep functions short and single-purpose. Keep files focused on one concept.
 - Names must be descriptive and domain-based. No `utils.py`, `helpers.py`, `manager.py` or `data` as a name.
 
@@ -92,57 +116,98 @@ The code should look like a careful human wrote it. Specifically, do not:
 - add "just in case" parameters, flags or config options nobody asked for
 - catch broad exceptions and swallow them
 - leave `TODO` placeholders, `pass` bodies or `NotImplementedError` in finished code
-- invent features beyond what the instruction comments and this file describe
+- invent features beyond what the request and this file describe
+- mix languages: user-facing text and code text are English only
 
-If an instruction is ambiguous, pick the simplest reasonable reading and mention the choice in your final message.
+If a request is ambiguous, pick the simplest reasonable reading and mention the choice in your final message.
 
 ## Phases
 
 Phase 1, MVP: single target, flat rate or pity curve, currency, price per pull, success probability.
 
-- `core/errors.py`, `core/distribution.py`, `core/rate_curve.py`, `core/items.py`, `core/banner.py`, `core/currency.py`, `core/calculator.py`, `core/simulator.py`
+- `core/errors.py`, `core/models/` (currency, item, pity, banner), `core/calculators/` (`base`, `simple`, `pity_dp`), `core/simulator.py`
 - `storage/serializers.py`, `storage/profile_repository.py`
-- `ui/app.py`, `ui/presenters.py`, `ui/workers.py`, `ui/views/banner_view.py`, `ui/views/currency_view.py`, `ui/views/results_view.py`
-- tests for all of the above
+- `ui/app.py`, `ui/parsing.py`, `ui/views/banner_view.py`, `ui/views/currency_view.py`, `ui/views/result_view.py`
+- `main.py`, tests for all of the above
 
 Phase 2, planner: 50/50 guarantee, starting pity, real-money currencies, manual exchange rates, top-up packages, income and deadline planning.
 
-- `core/guarantee.py`, `core/exchange.py`, `core/topup.py`, `core/planner.py`, `ui/views/planner_view.py`
+- `core/exchange.py`, `core/topup_optimizer.py`, `core/budget.py`, `core/naming.py`, `core/models/profile.py`, `core/models/topup.py`
+- `services/planner_service.py`, `ui/views/budget_view.py`
 
-Phase 3, insight: charts, percentiles, multiple copies, multiple targets.
+Phase 3, insight: charts, multiple copies, multiple targets.
 
-- `ui/widgets/curve_chart.py`, extensions to `core/calculator.py` and `core/distribution.py`
+- `core/calculators/multi_target.py`, `ui/charts.py`
 
 Phase 4, data: pull log and rate estimation for games that hide their rates.
 
-- `core/pull_log.py`, `core/estimator.py`, `ui/views/pull_log_view.py`
+- `core/models/pull_log.py`, `core/estimator.py`
+- Persistence and a screen are not built yet; if you add them, follow the storage and layering rules.
 
 Phase 5, polish: item images, optional animation, dark mode.
 
-- `ui/widgets/item_card.py`
+- `ui/widgets/item_card.py`, `ui/theme.py`, chart palettes from `ui/theme.py`
 
 A phase is done when its code is implemented, typed, tested and the quality commands below pass.
 
 ## Commands
 
-```
+```bash
 pip install -e ".[dev]"
 pytest
 mypy .
 ruff check .
-ruff format .
+ruff format --check .
 python main.py
 ```
 
-Run `pytest`, `mypy .` and `ruff check .` before reporting a task as finished. Report the actual result, including failures.
+Run `pytest`, `mypy .`, `ruff check .` and `ruff format --check .` before reporting a task as finished. Report the actual result, including failures.
 
 ## Testing
 
-- Every `core/` module has a matching `tests/test_<module>.py`.
+- Every `core/` module with behavior has a matching `tests/test_<module>.py`. Pure data and exception modules are covered through their users (`core/calculators/base.py` through its subclasses, `core/errors.py` through exchange and storage).
 - Test behavior, not implementation details.
 - Use small hand-computable cases (for example rate 0.5 over 2 pulls gives 0.75) in addition to larger ones.
 - The simulator and the calculator must agree. A test compares the simulated distribution against the exact one with a fixed seed and a stated tolerance.
 - Tests must not touch the real `data/` directory. Use `tmp_path`.
+- Tests are English like the rest of the code, including test data strings.
+
+## Git and commit messages
+
+The user commits; the agent does not. Unless the user asks for it, never run `git add`,
+`git commit` or `git push`. Every change you make is reported to the user with a commit message
+they can paste, together with the files that message covers.
+
+A commit message:
+
+- is English, imperative, one line, at most 72 characters, in the `type: subject` form the history
+  uses (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `build:`, `chore:`)
+- says why the change was made, not only what moved
+- is split by concern only when the working tree really holds unrelated changes; one message for
+  the whole tree is the default
+
+Keep the message alone inside a fenced `text` block, because the user copies it straight into
+`git commit -m`. List the target files below the block as plain text, never inside it: specific
+paths, a pattern such as `core/**`, or `all files`. Report it in this shape:
+
+```text
+refactor(core): split the domain into models and calculators
+```
+
+Files: `core/models/` (all), `core/calculators/` (all), `tests/test_pity.py`.
+
+## Markdown files
+
+Every Markdown file you create or edit must pass markdownlint before you report the task as
+finished:
+
+```bash
+npx markdownlint-cli2 AGENTS.md path/to/other.md
+```
+
+Fix what it reports. Only when a warning cannot be fixed without rewriting unrelated content may
+you disable that single rule in `.markdownlint.jsonc`, with a comment that says why. Never delete
+the config, and never disable a rule you did not actually hit.
 
 ## Things not to do
 
