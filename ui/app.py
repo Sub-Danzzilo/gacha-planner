@@ -14,6 +14,7 @@ from core.models.pity import PityState
 from core.models.profile import GameProfile
 from core.models.topup import TopUpPackage
 from core.naming import RandomNameGenerator
+from core.sample_profile import SAMPLE_PROFILE_NAME, build_sample_profile
 from services.planner_service import PlannerService, PlanReport
 from storage.profile_repository import ProfileRepository
 from ui.parsing import describe_error
@@ -84,6 +85,7 @@ class App(tk.Tk):
         profile_menu = tk.Menu(menubar, tearoff=False)
         profile_menu.add_command(label="New", command=self._new_profile)
         profile_menu.add_command(label="Open...", command=self._open_profile)
+        profile_menu.add_command(label="Load example", command=self._load_example)
         profile_menu.add_command(label="Save", command=self._save_profile)
         profile_menu.add_command(label="Save as...", command=self._save_profile_as)
         profile_menu.add_separator()
@@ -213,14 +215,7 @@ class App(tk.Tk):
     def _new_profile(self) -> None:
         if not self._confirm_discard():
             return
-        self._profile = GameProfile(name=_UNSAVED_NAME)
-        self._last_report = None
-        self._last_curve = []
-        self._last_markers = {}
-        self._results_view.clear()
-        self._sync_provider()
-        self._dirty = False
-        self._refresh()
+        self._replace_profile(GameProfile(name=_UNSAVED_NAME))
 
     def _open_profile(self) -> None:
         if not self._confirm_discard():
@@ -233,6 +228,19 @@ class App(tk.Tk):
         except StorageError as exc:
             self.show_error(str(exc))
             return
+        self._replace_profile(profile)
+
+    def _load_example(self) -> None:
+        if not self._confirm_discard():
+            return
+        self._replace_profile(build_sample_profile(date.today()))
+        self.show_info(
+            f"Profile {SAMPLE_PROFILE_NAME!r} loaded with two banners, three currencies, three "
+            "top-up packages and one manual rate. Open the Planning tab and press "
+            "Project deadline to see it work."
+        )
+
+    def _replace_profile(self, profile: GameProfile) -> None:
         self._profile = profile
         self._last_report = None
         self._last_curve = []
