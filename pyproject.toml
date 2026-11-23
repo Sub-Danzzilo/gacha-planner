@@ -23,7 +23,7 @@ strict = true
 warn_unreachable = true
 files = ["core", "storage", "ui", "services", "tests", "main.py"]
 
-# matplotlib mengirim anotasi sebagian tanpa py.typed penuh, jadi diperlakukan sebagai Any.
+# matplotlib ships partial annotations without a complete py.typed marker, so it is treated as Any.
 [[tool.mypy.overrides]]
 module = ["matplotlib", "matplotlib.*"]
 follow_imports = "skip"
